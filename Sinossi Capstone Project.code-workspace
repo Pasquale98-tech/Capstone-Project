@@ -1,3 +1,49 @@
-{
-	"folders": []
-}
+Obiettivo
+Market Scenario Lab è una piattaforma che impara come si muove un mercato (XAUUSD e NASDAQ US100), genera scenari sintetici con un Variational Autoencoder (VAE) e crea da sola strategie di trading che poi mette alla prova su quegli scenari.
+Per ogni strategia il sistema produce direzione BUY o SELL, prezzo di ingresso, Stop Loss, Take Profit, rapporto rischio/rendimento e probabilità stimata. Una strategia viene proposta solo se regge su dati che non ha mai visto e sugli scenari sintetici.
+
+Il valore del progetto è verificare se una strategia è robusta.
+• Un backtest su un solo storico può sembrare ottimo per puro caso; provarlo su centinaia di percorsi sintetici mostra se il risultato è fragile.
+• Il VAE serve a stress-testare le strategie, non a prevedere i prezzi.
+• Il sistema può anche concludere che nessuna strategia supera i test: è un risultato valido e viene riportato, senza forzare segnali.
+• L'output è un report di rischio: drawdown peggiore, probabilità di perdita, distribuzione dei rendimenti.
+Architettura e moduli
+Il sistema è una catena di sei moduli: ognuno prende il risultato del precedente.
+1. Dati. Candele H1 (o giornaliere) di XAUUSD e NASDAQ da un CSV esportato da MetaTrader 4, oppure scaricate con yfinance (da verificare i limiti di storico sulle candele orarie). Pulizia, rendimenti logaritmici, volatilità, range delle candele e indicatori (RSI, MACD, EMA, ATR, Bollinger Bands). Salvataggio in SQLite.
+2. VAE su sequenze. Finestre di 64 candele. Encoder e decoder con convoluzioni 1D o LSTM, reparameterization trick, generazione da N(0,1) nello spazio latente. Si addestra sui rendimenti, non sui prezzi (i prezzi non sono stazionari); i prezzi sintetici si ricostruiscono sommando i rendimenti generati.
+3. Modello ML. Random Forest o XGBoost che stima la probabilità di rialzo della candela successiva, valutato con walk-forward e confrontato con una baseline ingenua.
+4. Generatore di strategie. Trasforma le probabilità in segnali BUY/SELL con Entry, Stop Loss e Take Profit (sezione successiva).
+5. Backtest. Simula le strategie con spread e commissioni, su storico reale e su scenari sintetici.
+6. Dashboard e LLM. Streamlit e Plotly: scelta di strumento e timeframe, reali contro sintetici, strategie generate, statistiche di backtest. L'LLM riceve solo risultati già calcolati e li spiega o li riassume in un report in italiano, senza inventare numeri.
+Generatore di strategie
+Le strategie non sono scritte a mano: le crea il sistema cercando le combinazioni di parametri che funzionano e scartando le altre.
+1. Segnale. Ogni ora il modello ML stima la probabilità di rialzo. Sopra una soglia alta il segnale è BUY, sotto una soglia bassa è SELL, nel mezzo non si opera. Le soglie sono parametri da ottimizzare.
+2. Livelli. Entry al prezzo corrente; Stop Loss e Take Profit calcolati dalla volatilità, per esempio 1,5 × ATR e 2,5 × ATR. Il rapporto rischio/rendimento ne risulta di conseguenza.
+3. Filtro di regime. Si opera solo in condizioni favorevoli, distinguendo fasi rialziste, ribassiste e laterali e livelli di volatilità.
+4. Ricerca dei parametri. Il sistema prova molte combinazioni (soglie, moltiplicatori di ATR, filtri) e produce un insieme di strategie candidate.
+5. Selezione. Le candidate si valutano su dati mai visti (walk-forward: si addestra sul passato e si testa sul periodo successivo). Una strategia viene promossa solo se regge anche sugli scenari sintetici del VAE: serve a evitare l'overfitting, cioè strategie che funzionano solo sullo storico.
+6. Output. Per ogni strategia promossa: direzione, Entry, Stop Loss, Take Profit, rischio/rendimento, probabilità stimata e statistiche di backtest con costi (rendimento, drawdown, percentuale di operazioni vincenti).
+Validazione e risultati attesi
+La qualità dei dati sintetici si misura confrontando il VAE con due metodi semplici, e si dichiara se non li batte.
+Test
+Cosa si confronta
+Cosa deve risultare
+Distribuzione dei rendimenti
+Istogrammi e code pesanti, reale e sintetico
+Forma simile, code non troppo sottili
+Autocorrelazione dei rendimenti
+Correlazione con i rendimenti precedenti
+Vicina a zero, come nel reale
+Volatilità a grappoli
+Autocorrelazione dei rendimenti al quadrato
+Positiva, come nel reale
+Media, deviazione standard, massimi e minimi
+Statistiche descrittive
+Valori vicini al reale
+Confronto con le baseline
+VAE contro ricampionamento casuale (bootstrap) e modello gaussiano
+Il VAE fa meglio, oppure lo si dichiara
+Risultati attesi:
+• un notebook riproducibile e una dashboard funzionante;
+• la tabella dei test di validazione;
+• un report di robustezza per ogni strategia, per esempio: rendimento medio X sullo storico, ma perdita superiore al 15% nel 30% degli scenari sintetici.
